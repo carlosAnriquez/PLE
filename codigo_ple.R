@@ -7,25 +7,43 @@ pacman::p_load(tidyverse,
                readxl,
                text2vec,
                tidytext,
-               wordcloud2)
+               wordcloud2,
+               stringi)
 
-# Abrir bb.dd               
+# Abrir bb.dd   
+
 raw_data <- read_excel("BBDD.xlsx") %>% as.data.frame()
 
 # Limpiar comentarios
+
 clean_data <- raw_data %>%
   mutate(
     comentario = ifelse(is.na(comentario) | comentario == "", "Texto no disponible", comentario), # Manejar NAs
     comentario = tolower(comentario),              # Convertir a minúsculas
+    comentario = chartr("áéíóúÁÉÍÓÚ", "aeiouAEIOU", comentario), # Eliminar tildes
     comentario = gsub("[[:punct:]]", "", comentario), # Remover puntuación
     comentario = gsub("[[:digit:]]", "", comentario), # Remover números
     comentario = trimws(comentario)                # Eliminar espacios extra
   )
 
+## gráfico alfileres
 
+# Contar comentarios por noticia
+
+df_comentarios <- clean_data %>%
+  group_by(noticia) %>%
+  summarise(comentario = n())
+
+# Crear el gráfico de alfileres
+
+grafico_comentarios <- ggplot(df_comentarios, aes(x = comentario, y = reorder(noticia, comentario))) +
+  geom_segment(aes(x = 0, xend = comentario, y = noticia, yend = noticia), color = "darkblue") +
+  geom_point(aes(x = comentario, y = noticia), color = "darkblue", size = 3) +
+  geom_text(aes(x = comentario + 0.5, y = noticia, label = comentario), hjust = -1, color = "black") +
+  labs(x = "Cantidad de comentarios", y = "Noticia") +
+  theme_bw() + scale_x_continuous(expand = expansion(mult = c(0, 0.1))) 
 
 ### dividir bb.dd por noticia
-
 
 data_llaitul <- clean_data %>% filter(clean_data$noticia == "Josefa Barraza")
 
@@ -46,11 +64,17 @@ corpus_sandoval <- Corpus(VectorSource(data_sandoval$comentario))
 
 stopwords_es <- c(stopwords("spanish"))
 
-corpus_completo <- tm_map(corpus_completo, removeWords, stopwords_es)
+palabras_adicionales <- c("ser", "solo", "asi", "mas", "hace", "puede", "como", "dice", "hacer", "igual", "menos", "debe", "ahi" )
 
-corpus_llaitul <- tm_map(corpus_llaitul, removeWords, stopwords_es)
-corpus_venezuela <- tm_map(corpus_venezuela, removeWords, stopwords_es)
-corpus_sandoval <- tm_map(corpus_sandoval, removeWords, stopwords_es)
+stopwords_es_cl <- c(stopwords_es, palabras_adicionales)
+
+# tm_map
+
+corpus_completo <- tm_map(corpus_completo, removeWords, stopwords_es_cl)
+
+corpus_llaitul <- tm_map(corpus_llaitul, removeWords, stopwords_es_cl)
+corpus_venezuela <- tm_map(corpus_venezuela, removeWords, stopwords_es_cl)
+corpus_sandoval <- tm_map(corpus_sandoval, removeWords, stopwords_es_cl)
 
 # transformar corpus a TDM
 
@@ -90,92 +114,109 @@ word_freqs_sandoval <- data.frame(
 word_freqs_total_filtered <- word_freqs_total %>%
   filter(freq >= 5) %>%     # Filtrar palabras con frecuencia >= 5
   arrange(desc(freq)) %>%   # Ordenar de mayor a menor frecuencia
-  slice_head(n = 70)        # Limitar a las primeras 50 palabras
+  slice_head(n = 50)        # Limitar a las primeras 50 palabras
 
 # filtro llaitul
 
 word_freqs_llaitul_filtered <- word_freqs_llaitul %>%
-  filter(freq >= 5) %>%     # Filtrar palabras con frecuencia >= 5
-  arrange(desc(freq)) %>%   # Ordenar de mayor a menor frecuencia
-  slice_head(n = 50)        # Limitar a las primeras 50 palabras
+  filter(freq >= 5) %>%     
+  arrange(desc(freq)) %>%   
+  slice_head(n = 50)        
 
 
 # filtro venezuela
 
 word_freqs_venezuela_filtered <- word_freqs_venezuela %>%
-  filter(freq >= 5) %>%     # Filtrar palabras con frecuencia >= 5
-  arrange(desc(freq)) %>%   # Ordenar de mayor a menor frecuencia
-  slice_head(n = 50)        # Limitar a las primeras 50 palabras
+  filter(freq >= 5) %>%     
+  arrange(desc(freq)) %>%   
+  slice_head(n = 50)        
 
 # filtro sandoval
 
 word_freqs_sandoval_filtered <- word_freqs_sandoval %>%
-  filter(freq >= 5) %>%     # Filtrar palabras con frecuencia >= 5
-  arrange(desc(freq)) %>%   # Ordenar de mayor a menor frecuencia
-  slice_head(n = 50)        # Limitar a las primeras 50 palabras
+  filter(freq >= 5) %>%     
+  arrange(desc(freq)) %>%   
+  slice_head(n = 50)        
 
 # Crear las nubes
 
-words_total <- wordcloud2(data = word_freqs_total_filtered, color = "random-light", shape = "pentagon")
-words_llaitul <- wordcloud2(data = word_freqs_llaitul_filtered, color = "random-light", shape = "pentagon")
-words_venezuela <- wordcloud2(data = word_freqs_venezuela_filtered, color = "random-light", shape = "pentagon")
-words_sandoval <- wordcloud2(data = word_freqs_sandoval_filtered, color = "random-light", shape = "pentagon")
+words_total <- wordcloud2(data = word_freqs_total_filtered, color = "random-dark", shape = "pentagon")
+words_llaitul <- wordcloud2(data = word_freqs_llaitul_filtered, color = "random-dark", shape = "pentagon")
+words_venezuela <- wordcloud2(data = word_freqs_venezuela_filtered, color = "random-dark", shape = "pentagon")
+words_sandoval <- wordcloud2(data = word_freqs_sandoval_filtered, color = "random-dark", shape = "pentagon")
 
 # transformacion corpus
 
-corpus_completo <- data.frame(text = sapply(corpus_completo, as.character), stringsAsFactors = FALSE) %>%
-  as_tibble()
+corpus_completo_grafo <- data.frame(text = sapply(corpus_completo, as.character), stringsAsFactors = FALSE) %>% as_tibble
 
 # Tokenización en bigramas (pares de palabras consecutivas)
-bigramas <- corpus_completo %>%
+
+bigramas <- corpus_completo_grafo %>%
   unnest_tokens(bigram, text, token = "ngrams", n = 2)
 
+
 # Separar bigramas en palabra1 y palabra2
+
 bigramas_separados <- bigramas %>% separate(bigram, into = c("palabra1", "palabra2"), sep = " ")
 
-umbral_frecuencia <- 2  # Cambia este valor según la densidad que desees
-red_bigramas_filtrada <- red_bigramas %>%
-  filter(n >= umbral_frecuencia)
-
 # Paso 2: Seleccionar las 15 palabras más usadas
+
 palabras_mas_usadas <- bigramas_separados %>%
   count(palabra1, sort = TRUE) %>%
-  top_n(20, n) %>%
+  top_n(200, n) %>%
   pull(palabra1)
 
+# Paso 3: Contar la frecuencia de bigramas
+
+frecuencia_bigramas <- bigramas_separados %>%
+  count(palabra1, palabra2, sort = TRUE)
+
+
 # Filtrar bigramas con las palabras más usadas
+
 red_bigramas <- frecuencia_bigramas %>%
   filter(palabra1 %in% palabras_mas_usadas)
 
-# Paso 3: Crear y visualizar el grafo
-grafo <- graph_from_data_frame(red_bigramas)
+umbral_frecuencia <- 5# Cambia este valor según la densidad que desees
 
-# Visualización
-plot(grafo,
-     vertex.size = 10,
-     vertex.label.cex = 0.7,
-     edge.width = E(grafo)$n / max(E(grafo)$n) * 10, # Grosor según frecuencia
-     edge.color = "darkgreen",
-     layout = layout_with_kk)
-
-# Filtrar los bigramas con frecuencia mayor o igual a un umbral
-umbral_frecuencia <- 5  # Cambia este valor según la densidad que desees
 red_bigramas_filtrada <- red_bigramas %>%
-  filter(n >= umbral_frecuencia)
+  filter(n >= umbral_frecuencia)%>% drop_na()
 
 # Crear el grafo con la red filtrada
+
 grafo_filtrado <- graph_from_data_frame(red_bigramas_filtrada)
 
 # Configuración de los tamaños de nodos y aristas
-vertex_sizes <- degree(grafo_filtrado, mode = "all") * 2  # Tamaño según conexiones
-edge_widths <- E(grafo_filtrado)$n / max(E(grafo_filtrado)$n) * 10  # Grosor según frecuencia
+
+vertex_sizes <- degree(grafo_filtrado, mode = "all") * 10  # Tamaño según conexiones
+
+edge_widths <- E(grafo_filtrado)$n / max(E(grafo_filtrado)$n) * 4  # Grosor según frecuencia
+
+# Ajuste de la distribución y visualización
+
+layout_grafo <- layout_with_kk(grafo_filtrado)
 
 # Visualizar el grafo
-plot(grafo_filtrado,
+grafo_total <- plot(grafo_filtrado,
+     layout = layout_grafo,
      vertex.size = vertex_sizes,       # Tamaño de los nodos
-     vertex.label.cex = 0.8,           # Tamaño del texto en los nodos
-     vertex.label.color = "black",     # Color de las etiquetas
+     vertex.label.cex = 1.2,           # Tamaño del texto en los nodos
+     vertex.label.color = "black", 
+     
      edge.width = edge_widths,         # Grosor de las aristas
-     edge.color = "darkgreen",         # Color de las aristas
-     layout = layout_with_fr,          # Distribución Fruchterman-Reingold
-     main = "Grafo de Bigramas Filtrados")
+     edge.color = "#D1D1D1",         # Color de las arista
+     vertex.label.family = "arial",
+     vertex.frame.color = "#D1D1D1",
+     vertex.color = "white")
+
+
+
+# Sumar frecuencias de cada término
+
+word_freqs_llaitul <- sort(rowSums(tdm_llaitul), decreasing = TRUE) %>% as.data.frame() %>% rownames_to_column("word")
+word_freqs_venezuela <- sort(rowSums(tdm_venezuela), decreasing = TRUE) %>% as.data.frame() %>% rownames_to_column("word")
+word_freqs_sandoval <- sort(rowSums(tdm_sandoval), decreasing = TRUE) %>% as.data.frame() %>% rownames_to_column("word")
+
+
+
+
